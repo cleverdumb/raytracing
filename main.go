@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -8,10 +9,12 @@ import (
 	"math"
 	"time"
 
-	"github.com/faiface/gui/win"
-	"github.com/faiface/mainthread"
+	_ "image/png"
+	"runtime"
 
 	"github.com/deeean/go-vector/vector3"
+	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
 const (
@@ -45,10 +48,9 @@ type Ray struct {
 }
 
 type Hit struct {
-	tri    Tri
-	t      float64
-	p      *vector3.Vector3
-	sx, sy int
+	tri Tri
+	t   float64
+	p   *vector3.Vector3
 }
 
 type Light struct {
@@ -73,52 +75,192 @@ func (t *Tri) init() {
 
 var mesh = []Tri{
 	{v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300)},
+	{v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300)},
 }
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0.4), pos: vector3.New(-400, 400, 0)},
+	{t: Point, I: (0.8), pos: vector3.New(-400, 400, 0)},
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},
 	// {t: Directional, I: (0.4), dir: vector3.New(10, 1, 0)},
 }
 
 var resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
 
-func run() {
-	// log.Println(vector3.New(2, 3, 4).Sub(vector3.New(1, 0, 5)).String())
+func init() {
+	// Lock OS thread to the main thread (necessary for OpenGL context)
+	runtime.LockOSThread()
+}
+
+func main() {
+
 	for i := range mesh {
 		mesh[i].init()
 	}
 	raytrace()
-	// log.Println(inTri(mesh[0], vector3.New(-200, 700, 0)))
-	render()
-}
+	// Initialize GLFW
+	if err := glfw.Init(); err != nil {
+		panic(fmt.Errorf("failed to initialize glfw: %v", err))
+	}
+	defer glfw.Terminate()
 
-func main() {
-	mainthread.Run(run)
-	// raytrace()
-	// render()
-}
+	// Create a windowed mode window
+	glfw.WindowHint(glfw.ContextVersionMajor, 4)
+	glfw.WindowHint(glfw.ContextVersionMinor, 1)
+	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
+	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 
-func render() {
-	// resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
-	// raytrace()
-	w, err := win.New(win.Title("raytracer"), win.Size(scrW, scrH))
+	window, err := glfw.CreateWindow(scrW, scrH, "Raytracing", nil, nil)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("failed to create window: %v", err))
+	}
+	window.MakeContextCurrent()
+
+	// Initialize OpenGL
+	if err := gl.Init(); err != nil {
+		panic(fmt.Errorf("failed to initialize OpenGL: %v", err))
 	}
 
-	w.Draw() <- func(drw draw.Image) image.Rectangle {
-		draw.Draw(drw, image.Rect(0, 0, scrW, scrH), resultImage, image.ZP, draw.Src)
-		return image.Rect(0, 0, scrW, scrH)
+	// Load and bind texture
+	// texture, err := loadTexture() // Replace with your image file
+	// if err != nil {
+	// 	panic(fmt.Errorf("failed to load texture: %v", err))
+	// }
+
+	// Define quad vertices
+	vertices := []float32{
+		// Positions   // Texture Coords
+		-1.0, -1.0, 0.0, 0.0,
+		1.0, -1.0, 1.0, 0.0,
+		-1.0, 1.0, 0.0, 1.0,
+		1.0, 1.0, 1.0, 1.0,
 	}
 
-	for event := range w.Events() {
-		switch event.(type) {
-		case win.WiClose:
-			close(w.Draw())
+	// Create VBO and VAO
+	var vao, vbo uint32
+	gl.GenVertexArrays(1, &vao)
+	gl.GenBuffers(1, &vbo)
+
+	gl.BindVertexArray(vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
+
+	// Define vertex attributes
+	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 4*4, gl.PtrOffset(0))
+	gl.EnableVertexAttribArray(0)
+
+	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 4*4, gl.PtrOffset(2*4))
+	gl.EnableVertexAttribArray(1)
+
+	// Create shader program
+	shaderProgram := createShaderProgram()
+	gl.UseProgram(shaderProgram)
+	gl.Uniform1i(gl.GetUniformLocation(shaderProgram, gl.Str("texture1\x00")), 0)
+
+	angle := float64(0)
+	// Render loop
+	for !window.ShouldClose() {
+		angle += 3
+		lights[0].pos.X = 300 * math.Cos(angle/180*math.Pi)
+		lights[0].pos.Z = 300 * math.Sin(angle/180*math.Pi)
+		// log.Println(lights[0].pos.String())
+		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
+		raytrace()
+		texture, _ := loadTexture()
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+
+		// Bind texture and draw quad
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, texture)
+
+		gl.UseProgram(shaderProgram)
+		gl.BindVertexArray(vao)
+		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+
+		window.SwapBuffers()
+		glfw.PollEvents()
+	}
+
+	// Cleanup
+	gl.DeleteVertexArrays(1, &vao)
+	gl.DeleteBuffers(1, &vbo)
+	gl.DeleteProgram(shaderProgram)
+}
+
+func loadTexture() (uint32, error) {
+	// file, err := os.Open(filename)
+	// if err != nil {
+	// 	return 0, err
+	// }
+	// defer file.Close()
+
+	// img, _, err := image.Decode(file)
+	// if err != nil {
+	// 	return 0, err
+	// }
+
+	img := resultImage
+
+	// Convert to RGBA
+	rgba := image.NewRGBA(img.Bounds())
+	draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
+
+	// Generate OpenGL texture
+	var texture uint32
+	gl.GenTextures(1, &texture)
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(rgba.Bounds().Dx()), int32(rgba.Bounds().Dy()), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(rgba.Pix))
+
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+
+	return texture, nil
+}
+
+func createShaderProgram() uint32 {
+	vertexShaderSource := `
+		#version 410 core
+		layout (location = 0) in vec2 aPos;
+		layout (location = 1) in vec2 aTexCoord;
+		out vec2 TexCoord;
+		void main() {
+			gl_Position = vec4(aPos, 0.0, 1.0);
+			TexCoord = aTexCoord;
 		}
-	}
+	` + "\x00"
+
+	fragmentShaderSource := `
+		#version 410 core
+		out vec4 FragColor;
+		in vec2 TexCoord;
+		uniform sampler2D texture1;
+		void main() {
+			FragColor = texture(texture1, TexCoord);
+		}
+	` + "\x00"
+
+	vertexShader := gl.CreateShader(gl.VERTEX_SHADER)
+	cVertexSource, free := gl.Strs(vertexShaderSource)
+	gl.ShaderSource(vertexShader, 1, cVertexSource, nil)
+	free()
+	gl.CompileShader(vertexShader)
+
+	fragmentShader := gl.CreateShader(gl.FRAGMENT_SHADER)
+	cFragmentSource, free := gl.Strs(fragmentShaderSource)
+	gl.ShaderSource(fragmentShader, 1, cFragmentSource, nil)
+	free()
+	gl.CompileShader(fragmentShader)
+
+	program := gl.CreateProgram()
+	gl.AttachShader(program, vertexShader)
+	gl.AttachShader(program, fragmentShader)
+	gl.LinkProgram(program)
+
+	gl.DeleteShader(vertexShader)
+	gl.DeleteShader(fragmentShader)
+
+	return program
 }
 
 func setRes(x, y int, r, g, b int) {
@@ -155,7 +297,7 @@ func raytrace() {
 						// setRes(sx, sy, c, c, c)
 
 						// log.Println("MARKER")
-						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p, sx: sx, sy: sy})
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
 
 						// break
 						// setRes(sx, sy, 255, 255, 255)
@@ -165,6 +307,7 @@ func raytrace() {
 			}
 
 			if len(hitRecord) <= 0 {
+				setRes(sx, sy, 0, 0, 0)
 				continue
 			}
 
@@ -187,7 +330,7 @@ func raytrace() {
 			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
 			c := getIntensity(firstHit.tri, firstHit.p)
 			col := int(c * 255)
-			setRes(firstHit.sx, scrH-firstHit.sy-1, col, col, col)
+			setRes(sx, sy, col, col, col)
 
 			// log.Println(time.Since(s1))
 
@@ -235,17 +378,18 @@ func inTri(t Tri, p *vector3.Vector3) bool {
 	// log.Println(t.n.Dot(v1v2.Cross(v1p)))
 	// log.Println(t.n.Dot(v2v0.Cross(v2p)))
 
-	if t.n.Dot(v0v1.Cross(v0p)) < 0 {
+	epsilon := 0.001
+	if t.n.Dot(v0v1.Cross(v0p)) < -epsilon {
 		// log.Println("r1")
 		return false
 	}
 
-	if t.n.Dot(v1v2.Cross(v1p)) < 0 {
+	if t.n.Dot(v1v2.Cross(v1p)) < -epsilon {
 		// log.Println("r2")
 		return false
 	}
 
-	if t.n.Dot(v2v0.Cross(v2p)) < 0 {
+	if t.n.Dot(v2v0.Cross(v2p)) < -epsilon {
 		// log.Println("r3")
 		return false
 	}
@@ -266,6 +410,8 @@ func getIntensity(tri Tri, p *vector3.Vector3) float64 {
 		} else {
 			var pl *vector3.Vector3
 			if l.t == Point {
+				// fmt.Printf("%+v\n", l)
+				// log.Println(p.String())
 				pl = l.pos.Sub(p)
 			} else {
 				pl = l.dir.MulScalar(-1)
