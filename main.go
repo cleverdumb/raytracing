@@ -40,6 +40,9 @@ type Tri struct {
 
 	n *vector3.Vector3
 	D float64
+
+	specExp float64
+	shiny   bool
 }
 
 type Ray struct {
@@ -74,13 +77,14 @@ func (t *Tri) init() {
 }
 
 var mesh = []Tri{
-	{v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300)},
-	{v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300)},
+	{v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
+	{v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 }
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0.8), pos: vector3.New(-400, 400, 0)},
+	{t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
+	{t: Ambient, I: (0.2)},
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},
 	// {t: Directional, I: (0.4), dir: vector3.New(10, 1, 0)},
 }
@@ -158,11 +162,13 @@ func main() {
 	gl.Uniform1i(gl.GetUniformLocation(shaderProgram, gl.Str("texture1\x00")), 0)
 
 	angle := float64(0)
+
+	window.SetKeyCallback(keyCB)
 	// Render loop
 	for !window.ShouldClose() {
 		angle += 3
-		lights[0].pos.X = 300 * math.Cos(angle/180*math.Pi)
-		lights[0].pos.Z = 300 * math.Sin(angle/180*math.Pi)
+		lights[0].pos.X = 250 * math.Cos(angle/180*math.Pi)
+		lights[0].pos.Z = 250 * math.Sin(angle/180*math.Pi)
 		// log.Println(lights[0].pos.String())
 		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
 		raytrace()
@@ -185,6 +191,16 @@ func main() {
 	gl.DeleteVertexArrays(1, &vao)
 	gl.DeleteBuffers(1, &vbo)
 	gl.DeleteProgram(shaderProgram)
+}
+
+func keyCB(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
+	if action == glfw.Press {
+		if key == glfw.KeyW {
+			mesh[0].specExp++
+		} else if key == glfw.KeyS {
+			mesh[0].specExp--
+		}
+	}
 }
 
 func loadTexture() (uint32, error) {
@@ -328,7 +344,7 @@ func raytrace() {
 			// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 			// log.Println(angleIncidence)
 			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-			c := getIntensity(firstHit.tri, firstHit.p)
+			c := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t).Add(viewO))
 			col := int(c * 255)
 			setRes(sx, sy, col, col, col)
 
@@ -401,26 +417,54 @@ func Angle(a, b *vector3.Vector3) float64 {
 	return math.Acos((a.Dot(b)) / (a.Magnitude() * b.Magnitude()))
 }
 
-func getIntensity(tri Tri, p *vector3.Vector3) float64 {
+func getIntensity(tri Tri, ray *vector3.Vector3) float64 {
 	sum := float64(0)
 
-	for _, l := range lights {
-		if l.t == Ambient {
-			sum += l.I
-		} else {
-			var pl *vector3.Vector3
-			if l.t == Point {
-				// fmt.Printf("%+v\n", l)
-				// log.Println(p.String())
-				pl = l.pos.Sub(p)
+	if !tri.shiny {
+		for _, l := range lights {
+			if l.t == Ambient {
+				sum += l.I
 			} else {
-				pl = l.dir.MulScalar(-1)
+				var pl *vector3.Vector3
+				if l.t == Point {
+					// fmt.Printf("%+v\n", l)
+					// log.Println(p.String())
+					pl = l.pos.Sub(ray.Add(viewO))
+				} else {
+					pl = l.dir.MulScalar(-1)
+				}
+
+				dot := tri.n.Dot(pl)
+
+				if dot > 0 {
+					sum += l.I * dot / pl.Magnitude()
+				}
 			}
+		}
+	} else {
+		// ray angle to normal
+		rayView := ray.MulScalar(-1)
 
-			dot := tri.n.Dot(pl)
+		var pl *vector3.Vector3
+		for _, l := range lights {
+			if l.t == Ambient {
+				sum += l.I
+			} else {
+				if l.t == Point {
+					// fmt.Printf("%+v\n", l)
+					// log.Println(p.String())
+					pl = l.pos.Sub(ray.Add(viewO))
+				} else {
+					pl = l.dir.MulScalar(-1)
+				}
 
-			if dot > 0 {
-				sum += l.I * dot / pl.Magnitude()
+				rayReflection := tri.n.MulScalar(2 * tri.n.Dot(pl)).Sub(pl)
+				dotted := rayView.Dot(rayReflection)
+				if dotted > 0 {
+					cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
+
+					sum += l.I * math.Pow(cosAlpha, tri.specExp)
+				}
 			}
 		}
 	}
