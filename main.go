@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	scrW = 800
-	scrH = 800
-	scrY = 500
+	scrW = 400
+	scrH = 400
+	scrY = 300
 )
 
 type LightType int
@@ -77,16 +77,22 @@ func (t *Tri) init() {
 }
 
 var mesh = []Tri{
-	{v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
-	{v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
+	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
+	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
+
+	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), specExp: 100, shiny: true},
+	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false},
+
+	{v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
+	{v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
 }
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
 	{t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
-	{t: Ambient, I: (0.2)},
+	{t: Ambient, I: (0.1)},
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},
-	// {t: Directional, I: (0.4), dir: vector3.New(10, 1, 0)},
+	// {t: Directional, I: (0.2), dir: vector3.New(-1, -1, -1)},
 }
 
 var resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
@@ -167,8 +173,17 @@ func main() {
 	// Render loop
 	for !window.ShouldClose() {
 		angle += 3
-		lights[0].pos.X = 250 * math.Cos(angle/180*math.Pi)
-		lights[0].pos.Z = 250 * math.Sin(angle/180*math.Pi)
+		radAngle := angle / 180 * math.Pi
+		lights[0].pos.X = 300 * math.Cos(radAngle)
+		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
+		lights[0].pos.Z = -210
+
+		mesh[2] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y-20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), shiny: false}
+		mesh[3] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X+20, lights[0].pos.Y+20, -200), shiny: false}
+
+		mesh[2].init()
+		mesh[3].init()
+
 		// log.Println(lights[0].pos.String())
 		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
 		raytrace()
