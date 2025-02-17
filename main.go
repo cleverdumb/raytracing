@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	scrW = 400
-	scrH = 400
+	scrW = 800
+	scrH = 800
 	scrY = 300
 )
 
@@ -43,6 +43,8 @@ type Tri struct {
 
 	specExp float64
 	shiny   bool
+
+	col *vector3.Vector3
 }
 
 type Ray struct {
@@ -80,17 +82,18 @@ var mesh = []Tri{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
-	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), specExp: 100, shiny: true},
-	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false},
+	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), shiny: false, col: vector3.New(230, 20, 0)},
+	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: true, col: vector3.New(20, 230, 0), specExp: 30},
 
-	{v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
-	{v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
+	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
+	// {v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
 }
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
-	{t: Ambient, I: (0.1)},
+	{t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
+	{t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
+	{t: Ambient, I: (0.2)},
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},
 	// {t: Directional, I: (0.2), dir: vector3.New(-1, -1, -1)},
 }
@@ -178,11 +181,18 @@ func main() {
 		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
 		lights[0].pos.Z = -210
 
-		mesh[2] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y-20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), shiny: false}
-		mesh[3] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X+20, lights[0].pos.Y+20, -200), shiny: false}
+		lights[1].pos.X = 300 * math.Cos(2*radAngle)
+		lights[1].pos.Y = 700 + 300*math.Sin(2*radAngle)
+		lights[1].pos.Z = -210
 
-		mesh[2].init()
-		mesh[3].init()
+		// mesh[0].col.X += 10
+		// mesh[1].col.X += 10
+
+		// mesh[2] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y-20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), shiny: false}
+		// mesh[3] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X+20, lights[0].pos.Y+20, -200), shiny: false}
+
+		// mesh[2].init()
+		// mesh[3].init()
 
 		// log.Println(lights[0].pos.String())
 		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
@@ -359,9 +369,15 @@ func raytrace() {
 			// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 			// log.Println(angleIncidence)
 			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-			c := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t).Add(viewO))
-			col := int(c * 255)
-			setRes(sx, sy, col, col, col)
+			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t).Add(viewO))
+			var col *vector3.Vector3
+			if firstHit.tri.col != nil {
+				col = firstHit.tri.col
+			} else {
+				col = vector3.New(100, 100, 100)
+			}
+			col = col.MulScalar(i)
+			setRes(sx, sy, int(col.X), int(col.Y), int(col.Z))
 
 			// log.Println(time.Since(s1))
 
