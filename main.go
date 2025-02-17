@@ -84,8 +84,12 @@ var mesh = []Tri{
 
 	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), shiny: false, col: vector3.New(230, 20, 0)},
 	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
+
 	{v0: vector3.New(-100, 800, -250), v1: vector3.New(-100, 600, -250), v2: vector3.New(-100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
+	{v2: vector3.New(-100, 800, -250), v1: vector3.New(-100, 600, -250), v0: vector3.New(-100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
+
 	{v0: vector3.New(100, 600, -250), v1: vector3.New(100, 800, -250), v2: vector3.New(100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
+	{v2: vector3.New(100, 600, -250), v1: vector3.New(100, 800, -250), v0: vector3.New(100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
 	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
 	// {v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
 }
@@ -377,6 +381,10 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 	var hitRecord []Hit
 
 	for _, tri := range mesh {
+
+		if backface(ray, tri) {
+			continue
+		}
 		// log.Printf("%+v\n", tri)
 		t, p := intersect(tri, ray)
 		// log.Println(t)
@@ -410,6 +418,10 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 	}
 
 	return hitRecord
+}
+
+func backface(r Ray, t Tri) bool {
+	return r.dir.Dot(t.n) > 0
 }
 
 func intersect(t Tri, r Ray) (float64, *vector3.Vector3) {
