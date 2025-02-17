@@ -33,10 +33,8 @@ const (
 
 var viewO = vector3.New(0, 0, 0)
 
-type Tri struct {
-	v0 *vector3.Vector3
-	v1 *vector3.Vector3
-	v2 *vector3.Vector3
+type Polygon struct {
+	v []*vector3.Vector3
 
 	n *vector3.Vector3
 	D float64
@@ -53,7 +51,7 @@ type Ray struct {
 }
 
 type Hit struct {
-	tri Tri
+	tri Polygon
 	t   float64
 	p   *vector3.Vector3
 }
@@ -65,31 +63,26 @@ type Light struct {
 	dir *vector3.Vector3
 }
 
-func (t *Tri) init() {
-	d1 := t.v1.Sub(t.v0)
-	d2 := t.v2.Sub(t.v0)
+func (t *Polygon) init() {
+	d1 := t.v[1].Sub(t.v[0])
+	d2 := t.v[2].Sub(t.v[0])
 
 	// log.Println(d1.String(), d2.String())
 
 	t.n = d1.Cross(d2).Normalize()
 	// log.Println(t.n.String())
 
-	t.D = float64(t.n.Dot(t.v0))
+	t.D = float64(t.n.Dot(t.v[0]))
 	// log.Println(t.D)
 }
 
-var mesh = []Tri{
+var mesh = []Polygon{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
-	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), shiny: false, col: vector3.New(230, 20, 0)},
-	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
+	{v: []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)}, shiny: true, specExp: 100, col: vector3.New(255, 0, 0)},
+	// {v: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
 
-	{v0: vector3.New(-100, 800, -250), v1: vector3.New(-100, 600, -250), v2: vector3.New(-100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
-	{v2: vector3.New(-100, 800, -250), v1: vector3.New(-100, 600, -250), v0: vector3.New(-100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
-
-	{v0: vector3.New(100, 600, -250), v1: vector3.New(100, 800, -250), v2: vector3.New(100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
-	{v2: vector3.New(100, 600, -250), v1: vector3.New(100, 800, -250), v0: vector3.New(100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
 	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
 	// {v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
 }
@@ -446,16 +439,16 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 	return hitRecord
 }
 
-func backface(r Ray, t Tri) bool {
+func backface(r Ray, t Polygon) bool {
 	return r.dir.Dot(t.n) > 0
 }
 
-func intersect(t Tri, r Ray) (float64, *vector3.Vector3) {
+func intersect(t Polygon, r Ray) (float64, *vector3.Vector3) {
 	// log.Println(t)
 	denom := r.dir.Dot(t.n)
 
 	if math.Abs(denom) > 0.000001 {
-		t := (t.n.Dot(t.v0.Sub(r.O))) / denom
+		t := (t.n.Dot(t.v[0].Sub(r.O))) / denom
 		p := r.O.Add(r.dir.MulScalar(t))
 
 		return t, p
@@ -464,22 +457,35 @@ func intersect(t Tri, r Ray) (float64, *vector3.Vector3) {
 	return -1, &vector3.Vector3{}
 }
 
-func inTri(t Tri, p *vector3.Vector3) bool {
+const epsilon = 0.001
+
+func inTri(t Polygon, p *vector3.Vector3) bool {
+	max := len(t.v)
+	for i, v := range t.v {
+		edge := t.v[(i+1)%max].Sub(v)
+		toP := p.Sub(v)
+
+		if t.n.Dot(edge.Cross(toP)) < epsilon {
+			return false
+		}
+	}
+
+	return true
 	// log.Println(p.String())
 	// log.Println(t.n.Dot(t.v1.Sub(t.v0).Cross(p.Sub(t.v0))))
 	// log.Println("N", t.n.String())
-	v0v1 := t.v1.Sub(t.v0)
+	// v0v1 := t.v1.Sub(t.v0)
 	// log.Println(v0v1.String())
-	v1v2 := t.v2.Sub(t.v1)
+	// v1v2 := t.v2.Sub(t.v1)
 	// log.Println(v1v2.String())
-	v2v0 := t.v0.Sub(t.v2)
+	// v2v0 := t.v0.Sub(t.v2)
 	// log.Println(v2v0.String())
 
-	v0p := p.Sub(t.v0)
+	// v0p := p.Sub(t.v0)
 	// log.Println(v0p.String())
-	v1p := p.Sub(t.v1)
+	// v1p := p.Sub(t.v1)
 	// log.Println(v1p.String())
-	v2p := p.Sub(t.v2)
+	// v2p := p.Sub(t.v2)
 	// log.Println(v2p.String())
 
 	// log.Println(t.n.Dot(v0v1.Cross(v0p)), t.n.Dot(v1v2.Cross(v1p)), t.n.Dot(v2v0.Cross(v2p)))
@@ -487,30 +493,29 @@ func inTri(t Tri, p *vector3.Vector3) bool {
 	// log.Println(t.n.Dot(v1v2.Cross(v1p)))
 	// log.Println(t.n.Dot(v2v0.Cross(v2p)))
 
-	epsilon := 0.001
-	if t.n.Dot(v0v1.Cross(v0p)) < -epsilon {
-		// log.Println("r1")
-		return false
-	}
+	// if t.n.Dot(v0v1.Cross(v0p)) < -epsilon {
+	// 	// log.Println("r1")
+	// 	return false
+	// }
 
-	if t.n.Dot(v1v2.Cross(v1p)) < -epsilon {
-		// log.Println("r2")
-		return false
-	}
+	// if t.n.Dot(v1v2.Cross(v1p)) < -epsilon {
+	// 	// log.Println("r2")
+	// 	return false
+	// }
 
-	if t.n.Dot(v2v0.Cross(v2p)) < -epsilon {
-		// log.Println("r3")
-		return false
-	}
+	// if t.n.Dot(v2v0.Cross(v2p)) < -epsilon {
+	// 	// log.Println("r3")
+	// 	return false
+	// }
 
-	return true
+	// return true
 }
 
 func Angle(a, b *vector3.Vector3) float64 {
 	return math.Acos((a.Dot(b)) / (a.Magnitude() * b.Magnitude()))
 }
 
-func getIntensity(tri Tri, ray *vector3.Vector3) float64 {
+func getIntensity(tri Polygon, ray *vector3.Vector3) float64 {
 	sum := float64(0)
 
 	P := ray.Add(viewO)
