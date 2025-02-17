@@ -83,19 +83,22 @@ var mesh = []Tri{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
 	{v0: vector3.New(-300, 400, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(-300, 1000, -250), shiny: false, col: vector3.New(230, 20, 0)},
-	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: true, col: vector3.New(20, 230, 0), specExp: 30},
-
+	{v0: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
+	{v0: vector3.New(-100, 800, -250), v1: vector3.New(-100, 600, -250), v2: vector3.New(-100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
+	{v0: vector3.New(100, 600, -250), v1: vector3.New(100, 800, -250), v2: vector3.New(100, 700, 0), shiny: false, col: vector3.New(0, 0, 255)},
 	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
 	// {v0: vector3.New(300-20, 700+20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300+20, 700+20, -200), shiny: false},
 }
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
-	{t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
-	{t: Ambient, I: (0.2)},
-	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},
-	// {t: Directional, I: (0.2), dir: vector3.New(-1, -1, -1)},
+	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
+	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
+	{t: Point, I: (0.7), pos: vector3.New(0, 700, -100)},
+	// {t: Point, I: (0.4), pos: vector3.New(0, 700, -100)},
+	{t: Ambient, I: (0.3)},
+
+	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},,
 }
 
 var resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
@@ -111,6 +114,8 @@ func main() {
 		mesh[i].init()
 	}
 	raytrace()
+
+	// log.Println(checkShadow(vector3.New(280, 700, -240), lights[1].dir.MulScalar(-1), math.Inf(1)))
 	// Initialize GLFW
 	if err := glfw.Init(); err != nil {
 		panic(fmt.Errorf("failed to initialize glfw: %v", err))
@@ -181,12 +186,14 @@ func main() {
 		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
 		lights[0].pos.Z = -210
 
-		lights[1].pos.X = 300 * math.Cos(2*radAngle)
-		lights[1].pos.Y = 700 + 300*math.Sin(2*radAngle)
-		lights[1].pos.Z = -210
+		// lights[1].pos.X = 300 * math.Cos(2*radAngle)
+		// lights[1].pos.Y = 700 + 300*math.Sin(2*radAngle)
+		// lights[1].pos.Z = -210
 
 		// mesh[0].col.X += 10
 		// mesh[1].col.X += 10
+
+		// lights[1].pos.Z += 10
 
 		// mesh[2] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y-20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), shiny: false}
 		// mesh[3] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X+20, lights[0].pos.Y+20, -200), shiny: false}
@@ -221,9 +228,9 @@ func main() {
 func keyCB(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 	if action == glfw.Press {
 		if key == glfw.KeyW {
-			mesh[0].specExp++
+			lights[1].dir.X -= 1
 		} else if key == glfw.KeyS {
-			mesh[0].specExp--
+			mesh[2].v2.Z -= 10
 		}
 	}
 }
@@ -312,7 +319,7 @@ func raytrace() {
 	s := time.Now()
 	for sy := 0; sy < scrH; sy++ {
 		for sx := 0; sx < scrW; sx++ {
-			scrWorld := vector3.New(float64(-scrW/2+sx), scrY, float64(-scrH/2+sy))
+			scrWorld := vector3.New(float64(-scrW/2+sx)+viewO.X, scrY+viewO.Y, float64(-scrH/2+sy)+viewO.Z)
 			dir := (scrWorld.Sub(viewO)).Normalize()
 			// log.Println(dir.String())
 			// R = t · dir
@@ -320,32 +327,9 @@ func raytrace() {
 
 			// s1 := time.Now()
 
-			var hitRecord []Hit
+			hitRecord := getHits(ray, false, 0)
 
-			for _, tri := range mesh {
-				// log.Printf("%+v\n", tri)
-				t, p := intersect(tri, ray)
-				// log.Println(p.String())
-				if t <= 0 {
-					continue
-				} else {
-					// log.Println("Marker")
-					if inTri(tri, p) {
-						// c := int((t - 700) / 30 * 255)
-						// angleIncidence := Angle(p.Sub(viewO), tri.n)
-						// log.Println(angleIncidence)
-						// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-						// setRes(sx, sy, c, c, c)
-
-						// log.Println("MARKER")
-						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
-
-						// break
-						// setRes(sx, sy, 255, 255, 255)
-						// log.Println("GOOD")
-					}
-				}
-			}
+			// hitRecord := make([]Hit, 0)
 
 			if len(hitRecord) <= 0 {
 				setRes(sx, sy, 0, 0, 0)
@@ -388,12 +372,52 @@ func raytrace() {
 	log.Println(time.Since(s))
 }
 
+func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
+	// log.Printf("%+v\n", ray.dir.String())
+	var hitRecord []Hit
+
+	for _, tri := range mesh {
+		// log.Printf("%+v\n", tri)
+		t, p := intersect(tri, ray)
+		// log.Println(t)
+		// log.Println(p.String())
+		if t <= 0 {
+			continue
+		} else {
+			// log.Println("Marker")
+			if inTri(tri, p) {
+				// c := int((t - 700) / 30 * 255)
+				// angleIncidence := Angle(p.Sub(viewO), tri.n)
+				// log.Println(angleIncidence)
+				// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
+				// setRes(sx, sy, c, c, c)
+
+				// log.Println("MARKER")
+
+				if breakHit {
+					if t < maxT && t > 0.0000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+						break
+					}
+				} else {
+					hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+				}
+				// break
+				// setRes(sx, sy, 255, 255, 255)
+				// log.Println("GOOD")
+			}
+		}
+	}
+
+	return hitRecord
+}
+
 func intersect(t Tri, r Ray) (float64, *vector3.Vector3) {
 	// log.Println(t)
 	denom := r.dir.Dot(t.n)
 
-	if denom != 0 {
-		t := (t.n.Dot(r.O) + t.D) / denom
+	if math.Abs(denom) > 0.000001 {
+		t := (t.n.Dot(t.v0.Sub(r.O))) / denom
 		p := r.O.Add(r.dir.MulScalar(t))
 
 		return t, p
@@ -451,24 +475,34 @@ func Angle(a, b *vector3.Vector3) float64 {
 func getIntensity(tri Tri, ray *vector3.Vector3) float64 {
 	sum := float64(0)
 
+	P := ray.Add(viewO)
 	if !tri.shiny {
 		for _, l := range lights {
 			if l.t == Ambient {
 				sum += l.I
 			} else {
 				var pl *vector3.Vector3
+				var maxT float64
 				if l.t == Point {
-					// fmt.Printf("%+v\n", l)
-					// log.Println(p.String())
-					pl = l.pos.Sub(ray.Add(viewO))
+					// L - P <=> L - (R + O)
+					pl = l.pos.Sub(P)
+					maxT = 1
 				} else {
 					pl = l.dir.MulScalar(-1)
+					maxT = math.Inf(1)
 				}
 
 				dot := tri.n.Dot(pl)
 
 				if dot > 0 {
-					sum += l.I * dot / pl.Magnitude()
+					shadowResult := checkShadow(P, pl, maxT)
+					// shadowResult := false
+					// if shadowResult {
+					// 	log.Println("shadow detected")
+					// }
+					if !shadowResult {
+						sum += l.I * dot / pl.Magnitude()
+					}
 				}
 			}
 		}
@@ -476,29 +510,44 @@ func getIntensity(tri Tri, ray *vector3.Vector3) float64 {
 		// ray angle to normal
 		rayView := ray.MulScalar(-1)
 
-		var pl *vector3.Vector3
 		for _, l := range lights {
 			if l.t == Ambient {
 				sum += l.I
 			} else {
+				var pl *vector3.Vector3
+				var maxT float64
 				if l.t == Point {
 					// fmt.Printf("%+v\n", l)
 					// log.Println(p.String())
-					pl = l.pos.Sub(ray.Add(viewO))
+					pl = l.pos.Sub(P)
+					maxT = 1
 				} else {
 					pl = l.dir.MulScalar(-1)
+					maxT = math.Inf(1)
 				}
 
 				rayReflection := tri.n.MulScalar(2 * tri.n.Dot(pl)).Sub(pl)
 				dotted := rayView.Dot(rayReflection)
 				if dotted > 0 {
-					cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
+					if !checkShadow(P, pl, maxT) {
+						cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
 
-					sum += l.I * math.Pow(cosAlpha, tri.specExp)
+						sum += l.I * math.Pow(cosAlpha, tri.specExp)
+					}
 				}
 			}
 		}
 	}
 
 	return sum
+}
+
+func checkShadow(p *vector3.Vector3, dir *vector3.Vector3, maxT float64) bool {
+	hitRecord := getHits(Ray{O: p, dir: dir}, true, maxT)
+
+	// log.Println(hitRecord)
+	// if len(hitRecord) > 0 {
+	// 	fmt.Printf("%+v\n", hitRecord[0].tri.col.String())
+	// }
+	return len(hitRecord) > 0
 }
