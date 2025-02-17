@@ -98,9 +98,9 @@ var lights = []Light{
 	// {t: Ambient, I: (0.1)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
-	{t: Point, I: (0.7), pos: vector3.New(0, 700, -100)},
-	// {t: Point, I: (0.4), pos: vector3.New(0, 700, -100)},
-	{t: Ambient, I: (0.3)},
+	{t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
+	{t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
+	{t: Ambient, I: (0.2)},
 
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},,
 }
@@ -186,13 +186,14 @@ func main() {
 	for !window.ShouldClose() {
 		angle += 3
 		radAngle := angle / 180 * math.Pi
+		angle2 := radAngle + math.Pi
 		lights[0].pos.X = 300 * math.Cos(radAngle)
 		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
 		lights[0].pos.Z = -210
 
-		// lights[1].pos.X = 300 * math.Cos(2*radAngle)
-		// lights[1].pos.Y = 700 + 300*math.Sin(2*radAngle)
-		// lights[1].pos.Z = -210
+		lights[1].pos.X = 300 * math.Cos(angle2)
+		lights[1].pos.Y = 700 + 300*math.Sin(angle2)
+		lights[1].pos.Z = -210
 
 		// mesh[0].col.X += 10
 		// mesh[1].col.X += 10
@@ -204,6 +205,8 @@ func main() {
 
 		// mesh[2].init()
 		// mesh[3].init()
+
+		doKeyEffects()
 
 		// log.Println(lights[0].pos.String())
 		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
@@ -229,13 +232,36 @@ func main() {
 	gl.DeleteProgram(shaderProgram)
 }
 
+var keyMap = make(map[glfw.Key]bool)
+
 func keyCB(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 	if action == glfw.Press {
-		if key == glfw.KeyW {
-			lights[1].dir.X -= 1
-		} else if key == glfw.KeyS {
-			mesh[2].v2.Z -= 10
-		}
+		keyMap[key] = true
+	} else if action == glfw.Release {
+		keyMap[key] = false
+	}
+}
+
+const viewSpd = 20
+
+func doKeyEffects() {
+	if keyMap[glfw.KeyW] {
+		viewO.Y += viewSpd
+	}
+	if keyMap[glfw.KeyS] {
+		viewO.Y -= viewSpd
+	}
+	if keyMap[glfw.KeyA] {
+		viewO.X -= viewSpd
+	}
+	if keyMap[glfw.KeyD] {
+		viewO.X += viewSpd
+	}
+	if keyMap[glfw.KeyQ] {
+		viewO.Z -= viewSpd
+	}
+	if keyMap[glfw.KeyE] {
+		viewO.Z += viewSpd
 	}
 }
 
@@ -357,7 +383,7 @@ func raytrace() {
 			// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 			// log.Println(angleIncidence)
 			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t).Add(viewO))
+			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t))
 			var col *vector3.Vector3
 			if firstHit.tri.col != nil {
 				col = firstHit.tri.col
