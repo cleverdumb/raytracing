@@ -22,7 +22,7 @@ const (
 	scrH = 800
 	scrY = 400
 
-	maxReflectRecursion = 5
+	maxReflectRecursion = 10
 )
 
 type LightType int
@@ -91,19 +91,19 @@ var mesh = []Polygon{
 		col:   vector3.New(255, 0, 0),
 	},
 	{
-		v:              []*vector3.Vector3{vector3.New(-200, 800, -240), vector3.New(200, 800, -240), vector3.New(200, 800, 0), vector3.New(-200, 800, 0)},
+		v:              []*vector3.Vector3{vector3.New(-200, 700, -250), vector3.New(200, 700, -250), vector3.New(200, 700, 0), vector3.New(-200, 700, 0)},
 		shiny:          false,
-		col:            vector3.New(0, 255, 0),
+		col:            vector3.New(255, 255, 255),
 		reflect:        true,
-		reflectiveness: (0.8),
+		reflectiveness: (1),
 	},
-	{
-		v:              []*vector3.Vector3{vector3.New(200, 500, -240), vector3.New(-200, 500, -240), vector3.New(0, 500, 0)},
-		shiny:          false,
-		col:            vector3.New(0, 0, 255),
-		reflect:        true,
-		reflectiveness: (0.8),
-	},
+	// {
+	// 	v:              []*vector3.Vector3{vector3.New(200, 500, -240), vector3.New(-200, 500, -240), vector3.New(0, 500, 0)},
+	// 	shiny:          false,
+	// 	col:            vector3.New(0, 0, 255),
+	// 	reflect:        true,
+	// 	reflectiveness: (0.8),
+	// },
 	// {v: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
 
 	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
@@ -112,11 +112,11 @@ var mesh = []Polygon{
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
+	{t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
 	// {t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
-	{t: Ambient, I: (0.6)},
+	{t: Ambient, I: (0.2)},
 
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},,
 }
@@ -195,17 +195,17 @@ func main() {
 	gl.UseProgram(shaderProgram)
 	gl.Uniform1i(gl.GetUniformLocation(shaderProgram, gl.Str("texture1\x00")), 0)
 
-	// angle := float64(0)
+	angle := float64(0)
 
 	window.SetKeyCallback(keyCB)
 	// Render loop
 	for !window.ShouldClose() {
-		// angle += 5
-		// radAngle := angle / 180 * math.Pi
-		// angle2 := radAngle + math.Pi
-		// lights[0].pos.X = 300 * math.Cos(radAngle)
-		// lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
-		// lights[0].pos.Z = -210
+		angle += 5
+		radAngle := angle / 180 * math.Pi
+		// angle2 := radAngle + math.Pi/2
+		lights[0].pos.X = 300 * math.Cos(radAngle)
+		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
+		lights[0].pos.Z = -210
 
 		// lights[1].pos.X = 300 * math.Cos(angle2)
 		// lights[1].pos.Y = 700 + 300*math.Sin(angle2)
@@ -449,7 +449,9 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 						break
 					}
 				} else {
-					hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+					if t > 0.000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+					}
 				}
 				// break
 				// setRes(sx, sy, 255, 255, 255)
@@ -612,7 +614,7 @@ func getReflection(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3, layer 
 
 	firstHit := getClosestHit(hits)
 
-	i := getIntensity(tri, rayReflection, O)
+	i := getIntensity(firstHit.tri, rayReflection.MulScalar(firstHit.t), O)
 
 	var col *vector3.Vector3
 	if firstHit.tri.col != nil {
@@ -623,7 +625,7 @@ func getReflection(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3, layer 
 	col = col.MulScalar(i)
 
 	if firstHit.tri.reflect && layer > 0 {
-		r := getReflection(firstHit.tri, rayReflection, firstHit.p, layer-1)
+		r := getReflection(firstHit.tri, rayReflection.MulScalar(firstHit.t), firstHit.p, layer-1)
 		col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
 	}
 
