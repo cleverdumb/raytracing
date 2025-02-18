@@ -36,19 +36,37 @@ const (
 
 var viewO = vector3.New(0, 0, 0)
 
+type Object interface {
+	normal(pos *vector3.Vector3) *vector3.Vector3
+	init()
+	p() ObjectProp
+}
+
 type Polygon struct {
-	v []*vector3.Vector3
-
-	n *vector3.Vector3
-	D float64
-
-	specExp float64
-	shiny   bool
-
+	v              []*vector3.Vector3
+	n              *vector3.Vector3
+	D              float64
+	specExp        float64
+	shiny          bool
 	reflect        bool
 	reflectiveness float64
+	col            *vector3.Vector3
+}
 
-	col *vector3.Vector3
+type ObjectProp struct {
+	specExp        float64
+	shiny          bool
+	reflect        bool
+	reflectiveness float64
+	col            *vector3.Vector3
+}
+
+func (p Polygon) normal(_ *vector3.Vector3) *vector3.Vector3 {
+	return p.n
+}
+
+func (p Polygon) p() ObjectProp {
+	return ObjectProp{specExp: p.specExp, shiny: p.shiny, reflect: p.reflect, reflectiveness: p.reflectiveness, col: p.col}
 }
 
 type Ray struct {
@@ -57,7 +75,7 @@ type Ray struct {
 }
 
 type Hit struct {
-	tri Polygon
+	tri Object
 	t   float64
 	p   *vector3.Vector3
 }
@@ -82,16 +100,16 @@ func (t *Polygon) init() {
 	// log.Println(t.D)
 }
 
-var mesh = []Polygon{
+var mesh = []Object{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
-	{
+	&Polygon{
 		v:     []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)},
 		shiny: false,
 		col:   vector3.New(255, 0, 0),
 	},
-	{
+	&Polygon{
 		v:              []*vector3.Vector3{vector3.New(-200, 600, -250), vector3.New(200, 600, -250), vector3.New(200, 600, 0), vector3.New(-200, 600, 0)},
 		col:            vector3.New(255, 255, 255),
 		reflect:        true,
@@ -383,8 +401,8 @@ var sectorsDone = 0
 var sectorMutex sync.Mutex
 
 const (
-	sectionX = 4
-	sectionY = 2
+	sectionX = 4 // 4
+	sectionY = 2 // 2
 	sectionW = scrW / sectionX
 	sectionH = scrH / sectionY
 )
@@ -423,6 +441,7 @@ func scrToWorld(sx, sy int) *vector3.Vector3 {
 }
 
 func oneRay(dir *vector3.Vector3, sx, sy int) {
+	// log.Println("d", dir)
 	ray := Ray{O: viewO, dir: dir}
 
 	// s1 := time.Now()
@@ -447,39 +466,47 @@ func oneRay(dir *vector3.Vector3, sx, sy int) {
 	// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
 	i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO)
 	var col *vector3.Vector3
-	if firstHit.tri.col != nil {
-		col = firstHit.tri.col
+	if firstHit.tri.p().col != nil {
+		col = firstHit.tri.p().col
 	} else {
 		col = vector3.New(100, 100, 100)
 	}
 	col = col.MulScalar(i)
 	// var r *vector3.Vector3
-	if firstHit.tri.reflect {
+	if firstHit.tri.p().reflect {
 		r := getReflection(firstHit.tri, ray.dir.MulScalar(firstHit.t), firstHit.p, maxReflectRecursion)
-		col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
+		col = col.MulScalar(1 - firstHit.tri.p().reflectiveness).Add(r.MulScalar(firstHit.tri.p().reflectiveness))
 	}
 
 	setRes(sx, sy, int(col.X), int(col.Y), int(col.Z))
 }
 
 func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
-	// log.Printf("%+v\n", ray.dir.String())
+	// log.Printf("M %v", ray.dir.String())
 	var hitRecord []Hit
 
 	for _, tri := range mesh {
+		var t float64
+		var p *vector3.Vector3
+		if poly, ok := tri.(*Polygon); ok {
+			if backface(ray, *poly) {
+				continue
+			}
 
-		if backface(ray, tri) {
-			continue
+			t, p = intersect(*tri.(*Polygon), ray)
 		}
 		// log.Printf("%+v\n", tri)
-		t, p := intersect(tri, ray)
 		// log.Println(t)
 		// log.Println(p.String())
 		if t <= 0 {
 			continue
 		} else {
 			// log.Println("Marker")
-			if inTri(tri, p) {
+			cont := false
+			if _, ok := tri.(*Polygon); ok {
+				cont = inTri(*tri.(*Polygon), p)
+			}
+			if cont {
 				// c := int((t - 700) / 30 * 255)
 				// angleIncidence := Angle(p.Sub(viewO), tri.n)
 				// log.Println(angleIncidence)
@@ -509,6 +536,8 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 }
 
 func backface(r Ray, t Polygon) bool {
+	// log.Println("N", r.dir.String())
+	// log.Println("NORM", t.n.String())
 	return r.dir.Dot(t.n) > 0
 }
 
@@ -546,11 +575,11 @@ func Angle(a, b *vector3.Vector3) float64 {
 	return math.Acos((a.Dot(b)) / (a.Magnitude() * b.Magnitude()))
 }
 
-func getIntensity(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3) float64 {
+func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 {
 	sum := float64(0)
 
 	P := ray.Add(O)
-	if !tri.shiny {
+	if !tri.p().shiny {
 		for _, l := range lights {
 			if l.t == Ambient {
 				sum += l.I
@@ -566,7 +595,7 @@ func getIntensity(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3) float64
 					maxT = math.Inf(1)
 				}
 
-				dot := tri.n.Dot(pl)
+				dot := tri.normal(P).Dot(pl)
 
 				if dot > 0 {
 					shadowResult := checkShadow(P, pl, maxT)
@@ -600,13 +629,13 @@ func getIntensity(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3) float64
 					maxT = math.Inf(1)
 				}
 
-				rayReflection := reflect(pl, tri.n)
+				rayReflection := reflect(pl, tri.normal(P))
 				dotted := rayView.Dot(rayReflection)
 				if dotted > 0 {
 					if !checkShadow(P, pl, maxT) {
 						cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
 
-						sum += l.I * math.Pow(cosAlpha, tri.specExp)
+						sum += l.I * math.Pow(cosAlpha, tri.p().specExp)
 					}
 				}
 			}
@@ -644,9 +673,9 @@ func reflect(in *vector3.Vector3, line *vector3.Vector3) *vector3.Vector3 {
 	return line.MulScalar(2 * line.Dot(in)).Sub(in)
 }
 
-func getReflection(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3, layer int) *vector3.Vector3 {
+func getReflection(tri Object, ray *vector3.Vector3, O *vector3.Vector3, layer int) *vector3.Vector3 {
 	// P := O
-	rayReflection := reflect(ray.MulScalar(-1), tri.n)
+	rayReflection := reflect(ray.MulScalar(-1), tri.normal(O))
 	// log.Println(rayReflection.String())
 	hits := getHits(Ray{O: O, dir: rayReflection}, false, -1)
 
@@ -662,16 +691,16 @@ func getReflection(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3, layer 
 	i := getIntensity(firstHit.tri, rayReflection.MulScalar(firstHit.t), O)
 
 	var col *vector3.Vector3
-	if firstHit.tri.col != nil {
-		col = firstHit.tri.col
+	if firstHit.tri.p().col != nil {
+		col = firstHit.tri.p().col
 	} else {
 		col = vector3.New(100, 100, 100)
 	}
 	col = col.MulScalar(i)
 
-	if firstHit.tri.reflect && layer > 0 {
+	if firstHit.tri.p().reflect && layer > 0 {
 		r := getReflection(firstHit.tri, rayReflection.MulScalar(firstHit.t), firstHit.p, layer-1)
-		col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
+		col = col.MulScalar(1 - firstHit.tri.p().reflectiveness).Add(r.MulScalar(firstHit.tri.p().reflectiveness))
 	}
 
 	return col
