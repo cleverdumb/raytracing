@@ -20,7 +20,9 @@ import (
 const (
 	scrW = 800
 	scrH = 800
-	scrY = 300
+	scrY = 400
+
+	maxReflectRecursion = 5
 )
 
 type LightType int
@@ -41,6 +43,9 @@ type Polygon struct {
 
 	specExp float64
 	shiny   bool
+
+	reflect        bool
+	reflectiveness float64
 
 	col *vector3.Vector3
 }
@@ -80,7 +85,25 @@ var mesh = []Polygon{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
-	{v: []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)}, shiny: true, specExp: 100, col: vector3.New(255, 0, 0)},
+	{
+		v:     []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)},
+		shiny: false,
+		col:   vector3.New(255, 0, 0),
+	},
+	{
+		v:              []*vector3.Vector3{vector3.New(-200, 800, -240), vector3.New(200, 800, -240), vector3.New(200, 800, 0), vector3.New(-200, 800, 0)},
+		shiny:          false,
+		col:            vector3.New(0, 255, 0),
+		reflect:        true,
+		reflectiveness: (0.8),
+	},
+	{
+		v:              []*vector3.Vector3{vector3.New(200, 500, -240), vector3.New(-200, 500, -240), vector3.New(0, 500, 0)},
+		shiny:          false,
+		col:            vector3.New(0, 0, 255),
+		reflect:        true,
+		reflectiveness: (0.8),
+	},
 	// {v: vector3.New(-300, 1000, -250), v1: vector3.New(300, 400, -250), v2: vector3.New(300, 1000, -250), shiny: false, col: vector3.New(20, 230, 0)},
 
 	// {v0: vector3.New(300-20, 700-20, -200), v1: vector3.New(300+20, 700-20, -200), v2: vector3.New(300-20, 700+20, -200), shiny: false},
@@ -91,9 +114,9 @@ var lights = []Light{
 	// {t: Ambient, I: (0.1)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
-	{t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
-	{t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
-	{t: Ambient, I: (0.2)},
+	// {t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
+	// {t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
+	{t: Ambient, I: (0.6)},
 
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},,
 }
@@ -172,27 +195,28 @@ func main() {
 	gl.UseProgram(shaderProgram)
 	gl.Uniform1i(gl.GetUniformLocation(shaderProgram, gl.Str("texture1\x00")), 0)
 
-	angle := float64(0)
+	// angle := float64(0)
 
 	window.SetKeyCallback(keyCB)
 	// Render loop
 	for !window.ShouldClose() {
-		angle += 3
-		radAngle := angle / 180 * math.Pi
-		angle2 := radAngle + math.Pi
-		lights[0].pos.X = 300 * math.Cos(radAngle)
-		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
-		lights[0].pos.Z = -210
+		// angle += 5
+		// radAngle := angle / 180 * math.Pi
+		// angle2 := radAngle + math.Pi
+		// lights[0].pos.X = 300 * math.Cos(radAngle)
+		// lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
+		// lights[0].pos.Z = -210
 
-		lights[1].pos.X = 300 * math.Cos(angle2)
-		lights[1].pos.Y = 700 + 300*math.Sin(angle2)
-		lights[1].pos.Z = -210
+		// lights[1].pos.X = 300 * math.Cos(angle2)
+		// lights[1].pos.Y = 700 + 300*math.Sin(angle2)
+		// lights[1].pos.Z = -210
 
 		// mesh[0].col.X += 10
 		// mesh[1].col.X += 10
 
 		// lights[1].pos.Z += 10
 
+		// mesh[1].reflectiveness = math.Sin(radAngle)
 		// mesh[2] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y-20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), shiny: false}
 		// mesh[3] = Tri{v0: vector3.New(lights[0].pos.X-20, lights[0].pos.Y+20, -200), v1: vector3.New(lights[0].pos.X+20, lights[0].pos.Y-20, -200), v2: vector3.New(lights[0].pos.X+20, lights[0].pos.Y+20, -200), shiny: false}
 
@@ -361,22 +385,14 @@ func raytrace() {
 
 			// log.Println(hitRecord)
 
-			minT := math.Inf(1)
-			var firstHit Hit
-
-			for _, hit := range hitRecord {
-				if hit.t < minT {
-					minT = hit.t
-					firstHit = hit
-				}
-			}
+			firstHit := getClosestHit(hitRecord)
 
 			// fmt.Printf("%+v\n", firstHit)
 
 			// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 			// log.Println(angleIncidence)
 			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t))
+			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO)
 			var col *vector3.Vector3
 			if firstHit.tri.col != nil {
 				col = firstHit.tri.col
@@ -384,6 +400,12 @@ func raytrace() {
 				col = vector3.New(100, 100, 100)
 			}
 			col = col.MulScalar(i)
+			// var r *vector3.Vector3
+			if firstHit.tri.reflect {
+				r := getReflection(firstHit.tri, ray.dir.MulScalar(firstHit.t), firstHit.p, maxReflectRecursion)
+				col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
+			}
+
 			setRes(sx, sy, int(col.X), int(col.Y), int(col.Z))
 
 			// log.Println(time.Since(s1))
@@ -471,54 +493,16 @@ func inTri(t Polygon, p *vector3.Vector3) bool {
 	}
 
 	return true
-	// log.Println(p.String())
-	// log.Println(t.n.Dot(t.v1.Sub(t.v0).Cross(p.Sub(t.v0))))
-	// log.Println("N", t.n.String())
-	// v0v1 := t.v1.Sub(t.v0)
-	// log.Println(v0v1.String())
-	// v1v2 := t.v2.Sub(t.v1)
-	// log.Println(v1v2.String())
-	// v2v0 := t.v0.Sub(t.v2)
-	// log.Println(v2v0.String())
-
-	// v0p := p.Sub(t.v0)
-	// log.Println(v0p.String())
-	// v1p := p.Sub(t.v1)
-	// log.Println(v1p.String())
-	// v2p := p.Sub(t.v2)
-	// log.Println(v2p.String())
-
-	// log.Println(t.n.Dot(v0v1.Cross(v0p)), t.n.Dot(v1v2.Cross(v1p)), t.n.Dot(v2v0.Cross(v2p)))
-	// log.Println(t.n.Dot(v0v1.Cross(v0p)))
-	// log.Println(t.n.Dot(v1v2.Cross(v1p)))
-	// log.Println(t.n.Dot(v2v0.Cross(v2p)))
-
-	// if t.n.Dot(v0v1.Cross(v0p)) < -epsilon {
-	// 	// log.Println("r1")
-	// 	return false
-	// }
-
-	// if t.n.Dot(v1v2.Cross(v1p)) < -epsilon {
-	// 	// log.Println("r2")
-	// 	return false
-	// }
-
-	// if t.n.Dot(v2v0.Cross(v2p)) < -epsilon {
-	// 	// log.Println("r3")
-	// 	return false
-	// }
-
-	// return true
 }
 
 func Angle(a, b *vector3.Vector3) float64 {
 	return math.Acos((a.Dot(b)) / (a.Magnitude() * b.Magnitude()))
 }
 
-func getIntensity(tri Polygon, ray *vector3.Vector3) float64 {
+func getIntensity(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3) float64 {
 	sum := float64(0)
 
-	P := ray.Add(viewO)
+	P := ray.Add(O)
 	if !tri.shiny {
 		for _, l := range lights {
 			if l.t == Ambient {
@@ -569,7 +553,7 @@ func getIntensity(tri Polygon, ray *vector3.Vector3) float64 {
 					maxT = math.Inf(1)
 				}
 
-				rayReflection := tri.n.MulScalar(2 * tri.n.Dot(pl)).Sub(pl)
+				rayReflection := reflect(pl, tri.n)
 				dotted := rayView.Dot(rayReflection)
 				if dotted > 0 {
 					if !checkShadow(P, pl, maxT) {
@@ -593,4 +577,57 @@ func checkShadow(p *vector3.Vector3, dir *vector3.Vector3, maxT float64) bool {
 	// 	fmt.Printf("%+v\n", hitRecord[0].tri.col.String())
 	// }
 	return len(hitRecord) > 0
+}
+
+func getClosestHit(record []Hit) Hit {
+	minT := math.Inf(1)
+	var firstHit Hit
+
+	for _, hit := range record {
+		if hit.t < minT {
+			minT = hit.t
+			firstHit = hit
+		}
+	}
+
+	return firstHit
+}
+
+func reflect(in *vector3.Vector3, line *vector3.Vector3) *vector3.Vector3 {
+	return line.MulScalar(2 * line.Dot(in)).Sub(in)
+}
+
+func getReflection(tri Polygon, ray *vector3.Vector3, O *vector3.Vector3, layer int) *vector3.Vector3 {
+	// P := O
+	rayReflection := reflect(ray.MulScalar(-1), tri.n)
+	// log.Println(rayReflection.String())
+	hits := getHits(Ray{O: O, dir: rayReflection}, false, -1)
+
+	if len(hits) <= 0 {
+		// log.Println("No reflection")
+		return vector3.New(0, 0, 0)
+	}
+
+	// log.Println("REFLECTION")
+
+	firstHit := getClosestHit(hits)
+
+	i := getIntensity(tri, rayReflection, O)
+
+	var col *vector3.Vector3
+	if firstHit.tri.col != nil {
+		col = firstHit.tri.col
+	} else {
+		col = vector3.New(100, 100, 100)
+	}
+	col = col.MulScalar(i)
+
+	if firstHit.tri.reflect && layer > 0 {
+		r := getReflection(firstHit.tri, rayReflection, firstHit.p, layer-1)
+		col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
+	}
+
+	return col
+
+	// return vector3.New(0, 0, 255)
 }
