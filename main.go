@@ -7,6 +7,7 @@ import (
 	"image/draw"
 	"log"
 	"math"
+	"sync"
 	"time"
 
 	_ "image/png"
@@ -91,11 +92,12 @@ var mesh = []Polygon{
 		col:   vector3.New(255, 0, 0),
 	},
 	{
-		v:              []*vector3.Vector3{vector3.New(-200, 700, -250), vector3.New(200, 700, -250), vector3.New(200, 700, 0), vector3.New(-200, 700, 0)},
-		shiny:          false,
+		v:              []*vector3.Vector3{vector3.New(-200, 600, -250), vector3.New(200, 600, -250), vector3.New(200, 600, 0), vector3.New(-200, 600, 0)},
 		col:            vector3.New(255, 255, 255),
 		reflect:        true,
-		reflectiveness: (1),
+		reflectiveness: (0.7),
+		shiny:          true,
+		specExp:        100,
 	},
 	// {
 	// 	v:              []*vector3.Vector3{vector3.New(200, 500, -240), vector3.New(-200, 500, -240), vector3.New(0, 500, 0)},
@@ -122,6 +124,7 @@ var lights = []Light{
 }
 
 var resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
+var copyImage image.Image
 
 func init() {
 	// Lock OS thread to the main thread (necessary for OpenGL context)
@@ -198,9 +201,11 @@ func main() {
 	angle := float64(0)
 
 	window.SetKeyCallback(keyCB)
+
+	s := time.Now()
 	// Render loop
 	for !window.ShouldClose() {
-		angle += 5
+		angle += 3
 		radAngle := angle / 180 * math.Pi
 		// angle2 := radAngle + math.Pi/2
 		lights[0].pos.X = 300 * math.Cos(radAngle)
@@ -226,8 +231,18 @@ func main() {
 		doKeyEffects()
 
 		// log.Println(lights[0].pos.String())
-		resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
-		raytrace()
+		// var copyResult image.Image
+		sectorMutex.Lock()
+		if sectorsDone >= 8 {
+			log.Println(time.Since(s))
+			s = time.Now()
+			copyImage = resultImage
+			resultImage = image.NewRGBA(image.Rect(0, 0, scrW, scrH))
+			sectorsDone = 0
+
+			raytrace()
+		}
+		sectorMutex.Unlock()
 		texture, _ := loadTexture()
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
@@ -240,6 +255,8 @@ func main() {
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 
 		window.SwapBuffers()
+
+		// raytrace()
 		glfw.PollEvents()
 	}
 
@@ -294,7 +311,7 @@ func loadTexture() (uint32, error) {
 	// 	return 0, err
 	// }
 
-	img := resultImage
+	img := copyImage
 
 	// Convert to RGBA
 	rgba := image.NewRGBA(img.Bounds())
@@ -362,59 +379,87 @@ func setRes(x, y int, r, g, b int) {
 	resultImage.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), 1})
 }
 
+var sectorsDone = 0
+var sectorMutex sync.Mutex
+
+const (
+	sectionX = 4
+	sectionY = 2
+	sectionW = scrW / sectionX
+	sectionH = scrH / sectionY
+)
+
 func raytrace() {
-	s := time.Now()
-	for sy := 0; sy < scrH; sy++ {
-		for sx := 0; sx < scrW; sx++ {
-			scrWorld := vector3.New(float64(-scrW/2+sx)+viewO.X, scrY+viewO.Y, float64(-scrH/2+sy)+viewO.Z)
-			dir := (scrWorld.Sub(viewO)).Normalize()
-			// log.Println(dir.String())
-			// R = t · dir
-			ray := Ray{O: viewO, dir: dir}
-
-			// s1 := time.Now()
-
-			hitRecord := getHits(ray, false, 0)
-
-			// hitRecord := make([]Hit, 0)
-
-			if len(hitRecord) <= 0 {
-				setRes(sx, sy, 0, 0, 0)
-				continue
-			}
-
-			// log.Println(hitRecord)
-
-			firstHit := getClosestHit(hitRecord)
-
-			// fmt.Printf("%+v\n", firstHit)
-
-			// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
-			// log.Println(angleIncidence)
-			// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-			i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO)
-			var col *vector3.Vector3
-			if firstHit.tri.col != nil {
-				col = firstHit.tri.col
-			} else {
-				col = vector3.New(100, 100, 100)
-			}
-			col = col.MulScalar(i)
-			// var r *vector3.Vector3
-			if firstHit.tri.reflect {
-				r := getReflection(firstHit.tri, ray.dir.MulScalar(firstHit.t), firstHit.p, maxReflectRecursion)
-				col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
-			}
-
-			setRes(sx, sy, int(col.X), int(col.Y), int(col.Z))
-
-			// log.Println(time.Since(s1))
-
-			// break
+	// s := time.Now()
+	for y := 0; y < sectionY; y++ {
+		for x := 0; x < sectionX; x++ {
+			go processSection(x, y)
 		}
-		// break
 	}
-	log.Println(time.Since(s))
+	// log.Println(time.Since(s))
+}
+
+func processSection(x, y int) {
+	for dy := 0; dy < sectionH; dy++ {
+		for dx := 0; dx < sectionW; dx++ {
+			sx, sy := x*sectionW+dx, y*sectionH+dy
+			dir := scrToWorld(sx, sy)
+			oneRay(dir, sx, sy)
+		}
+	}
+	sectorMutex.Lock()
+	sectorsDone++
+	sectorMutex.Unlock()
+	// if sectorsDone >= 8 {
+	// 	// render()
+	// 	sectorMutex.Lock()
+	// 	sectorsDone = 0
+	// 	sectorMutex.Unlock()
+	// }
+}
+
+func scrToWorld(sx, sy int) *vector3.Vector3 {
+	return vector3.New(float64(-scrW/2+sx), scrY, float64(-scrH/2+sy)).Normalize()
+}
+
+func oneRay(dir *vector3.Vector3, sx, sy int) {
+	ray := Ray{O: viewO, dir: dir}
+
+	// s1 := time.Now()
+
+	hitRecord := getHits(ray, false, 0)
+
+	// hitRecord := make([]Hit, 0)
+
+	if len(hitRecord) <= 0 {
+		setRes(sx, sy, 0, 0, 0)
+		return
+	}
+
+	// log.Println(hitRecord)
+
+	firstHit := getClosestHit(hitRecord)
+
+	// fmt.Printf("%+v\n", firstHit)
+
+	// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
+	// log.Println(angleIncidence)
+	// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
+	i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO)
+	var col *vector3.Vector3
+	if firstHit.tri.col != nil {
+		col = firstHit.tri.col
+	} else {
+		col = vector3.New(100, 100, 100)
+	}
+	col = col.MulScalar(i)
+	// var r *vector3.Vector3
+	if firstHit.tri.reflect {
+		r := getReflection(firstHit.tri, ray.dir.MulScalar(firstHit.t), firstHit.p, maxReflectRecursion)
+		col = col.MulScalar(1 - firstHit.tri.reflectiveness).Add(r.MulScalar(firstHit.tri.reflectiveness))
+	}
+
+	setRes(sx, sy, int(col.X), int(col.Y), int(col.Z))
 }
 
 func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
