@@ -37,6 +37,41 @@ const (
 var viewO = vector3.New(0, 0, 0)
 var viewOMutex sync.RWMutex
 
+var yaw = float64(0)   // clockwise, around z-axis
+var pitch = float64(0) // clockwise, around x-axis
+var roll = float64(0)  // clockwise, around y-axis
+
+var rotMatrix [9]float64
+var rotMatrixMutex sync.RWMutex
+
+func makeRotationMatrix() {
+	rotMatrixMutex.Lock()
+	ca := math.Cos(yaw * math.Pi / 180) // alpha
+	sa := math.Sin(yaw * math.Pi / 180)
+	cb := math.Cos(roll * math.Pi / 180) // beta
+	sb := math.Sin(roll * math.Pi / 180)
+	cg := math.Cos(pitch * math.Pi / 180) // gamma
+	sg := math.Sin(pitch * math.Pi / 180)
+	rotMatrix[0] = ca * cb
+	rotMatrix[1] = ca*sb*sg - sa*cg
+	rotMatrix[2] = ca*sb*cg + sa*sg
+	rotMatrix[3] = sa * cb
+	rotMatrix[4] = sa*sb*sg + ca*cg
+	rotMatrix[5] = sa*sb*cg - ca*sg
+	rotMatrix[6] = -sb
+	rotMatrix[7] = cb * sg
+	rotMatrix[8] = cb * cg
+	rotMatrixMutex.Unlock()
+}
+
+func applyMatrix(m [9]float64, v *vector3.Vector3) *vector3.Vector3 {
+	return vector3.New(
+		v.Dot(vector3.New(m[0], m[1], m[2])),
+		v.Dot(vector3.New(m[3], m[4], m[5])),
+		v.Dot(vector3.New(m[6], m[7], m[8])),
+	)
+}
+
 type Object interface {
 	normal(pos *vector3.Vector3) *vector3.Vector3
 	init()
@@ -190,6 +225,7 @@ func init() {
 }
 
 func main() {
+	makeRotationMatrix()
 
 	for i := range mesh {
 		// if p, ok := mesh[i].(Polygon); ok {
@@ -258,19 +294,21 @@ func main() {
 	gl.UseProgram(shaderProgram)
 	gl.Uniform1i(gl.GetUniformLocation(shaderProgram, gl.Str("texture1\x00")), 0)
 
-	angle := float64(0)
+	// angle := float64(0)
 
 	window.SetKeyCallback(keyCB)
 
 	s := time.Now()
 	// Render loop
 	for !window.ShouldClose() {
-		angle = 0
-		radAngle := angle / 180 * math.Pi
+		// angle += 1
+		// yaw = angle * math.Pi / 180
+		// makeRotationMatrix()
+		// radAngle := angle / 180 * math.Pi
 		// angle2 := radAngle + math.Pi/2
-		lights[0].pos.X = 300 * math.Cos(radAngle)
-		lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
-		lights[0].pos.Z = -210
+		// lights[0].pos.X = 300 * math.Cos(radAngle)
+		// lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
+		// lights[0].pos.Z = -210
 
 		// lights[1].pos.X = 300 * math.Cos(angle2)
 		// lights[1].pos.Y = 700 + 300*math.Sin(angle2)
@@ -337,26 +375,52 @@ func keyCB(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods 
 }
 
 const viewSpd = 5
+const rotSpd = 1
 
 func doKeyEffects() {
 	viewOMutex.Lock()
 	if keyMap[glfw.KeyW] {
-		viewO.Y += viewSpd
+		// viewO.Y += viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(0, viewSpd, 0)))
 	}
 	if keyMap[glfw.KeyS] {
-		viewO.Y -= viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(0, -viewSpd, 0)))
 	}
 	if keyMap[glfw.KeyA] {
-		viewO.X -= viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(-viewSpd, 0, 0)))
 	}
 	if keyMap[glfw.KeyD] {
-		viewO.X += viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(viewSpd, 0, 0)))
 	}
 	if keyMap[glfw.KeyQ] {
-		viewO.Z -= viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(0, 0, -viewSpd)))
 	}
 	if keyMap[glfw.KeyE] {
-		viewO.Z += viewSpd
+		viewO = viewO.Add(applyMatrix(rotMatrix, vector3.New(0, 0, viewSpd)))
+	}
+	if keyMap[glfw.KeyL] {
+		yaw -= rotSpd
+		makeRotationMatrix()
+	}
+	if keyMap[glfw.KeyJ] {
+		yaw += rotSpd
+		makeRotationMatrix()
+	}
+	if keyMap[glfw.KeyK] {
+		pitch -= rotSpd
+		makeRotationMatrix()
+	}
+	if keyMap[glfw.KeyI] {
+		pitch += rotSpd
+		makeRotationMatrix()
+	}
+	if keyMap[glfw.KeyO] {
+		roll += rotSpd
+		makeRotationMatrix()
+	}
+	if keyMap[glfw.KeyU] {
+		roll -= rotSpd
+		makeRotationMatrix()
 	}
 	viewOMutex.Unlock()
 }
@@ -463,10 +527,12 @@ func raytrace() {
 
 func processSection(x, y int) {
 	viewOMutex.RLock()
+	rotMatrixMutex.RLock()
 	for dy := 0; dy < sectionH; dy++ {
 		for dx := 0; dx < sectionW; dx++ {
 			sx, sy := x*sectionW+dx, y*sectionH+dy
 			dir := scrToWorld(sx, sy)
+			dir = applyMatrix(rotMatrix, dir)
 			oneRay(dir, sx, sy)
 		}
 	}
@@ -474,6 +540,7 @@ func processSection(x, y int) {
 	sectorsDone++
 	sectorMutex.Unlock()
 	viewOMutex.RUnlock()
+	rotMatrixMutex.RUnlock()
 	// if sectorsDone >= 8 {
 	// 	// render()
 	// 	sectorMutex.Lock()
