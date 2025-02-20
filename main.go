@@ -21,7 +21,7 @@ import (
 const (
 	scrW = 800
 	scrH = 800
-	scrY = 400
+	scrY = 600
 
 	maxReflectRecursion = 10
 )
@@ -35,6 +35,7 @@ const (
 )
 
 var viewO = vector3.New(0, 0, 0)
+var viewOMutex sync.RWMutex
 
 type Object interface {
 	normal(pos *vector3.Vector3) *vector3.Vector3
@@ -46,6 +47,16 @@ type Polygon struct {
 	v              []*vector3.Vector3
 	n              *vector3.Vector3
 	D              float64
+	specExp        float64
+	shiny          bool
+	reflect        bool
+	reflectiveness float64
+	col            *vector3.Vector3
+}
+
+type Sphere struct {
+	c              *vector3.Vector3
+	r              float64
 	specExp        float64
 	shiny          bool
 	reflect        bool
@@ -65,7 +76,15 @@ func (p Polygon) normal(_ *vector3.Vector3) *vector3.Vector3 {
 	return p.n
 }
 
+func (p Sphere) normal(pos *vector3.Vector3) *vector3.Vector3 {
+	return pos.Sub(p.c).Normalize()
+}
+
 func (p Polygon) p() ObjectProp {
+	return ObjectProp{specExp: p.specExp, shiny: p.shiny, reflect: p.reflect, reflectiveness: p.reflectiveness, col: p.col}
+}
+
+func (p Sphere) p() ObjectProp {
 	return ObjectProp{specExp: p.specExp, shiny: p.shiny, reflect: p.reflect, reflectiveness: p.reflectiveness, col: p.col}
 }
 
@@ -100,22 +119,42 @@ func (t *Polygon) init() {
 	// log.Println(t.D)
 }
 
+func (s *Sphere) init() {}
+
 var mesh = []Object{
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(-300, 700, -300), v2: vector3.New(300, 700, -300), specExp: 5, shiny: true},
 	// {v0: vector3.New(-300, 700, 300), v1: vector3.New(300, 700, -300), v2: vector3.New(300, 700, 300), shiny: false},
 
-	&Polygon{
-		v:     []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)},
-		shiny: false,
-		col:   vector3.New(255, 0, 0),
+	// &Polygon{
+	// 	v:     []*vector3.Vector3{vector3.New(-300, 400, -250), vector3.New(300, 400, -250), vector3.New(300, 1000, -250), vector3.New(-300, 1000, -250)},
+	// 	shiny: false,
+	// 	col:   vector3.New(255, 0, 0),
+	// },
+	// &Polygon{
+	// 	v:              []*vector3.Vector3{vector3.New(-200, 600, -250), vector3.New(200, 600, -250), vector3.New(200, 600, 0), vector3.New(-200, 600, 0)},
+	// 	col:            vector3.New(255, 255, 255),
+	// 	reflect:        true,
+	// 	reflectiveness: (0.7),
+	// 	shiny:          true,
+	// 	specExp:        100,
+	// },
+	&Sphere{
+		c:              vector3.New(-150, 750, 0),
+		r:              200,
+		col:            vector3.New(255, 0, 0),
+		shiny:          false,
+		specExp:        50,
+		reflect:        false,
+		reflectiveness: (0.5),
 	},
-	&Polygon{
-		v:              []*vector3.Vector3{vector3.New(-200, 600, -250), vector3.New(200, 600, -250), vector3.New(200, 600, 0), vector3.New(-200, 600, 0)},
-		col:            vector3.New(255, 255, 255),
-		reflect:        true,
-		reflectiveness: (0.7),
+	&Sphere{
+		c:              vector3.New(300, 750, 0),
+		r:              100,
+		col:            vector3.New(0, 255, 0),
 		shiny:          true,
-		specExp:        100,
+		specExp:        50,
+		reflect:        false,
+		reflectiveness: (0.5),
 	},
 	// {
 	// 	v:              []*vector3.Vector3{vector3.New(200, 500, -240), vector3.New(-200, 500, -240), vector3.New(0, 500, 0)},
@@ -132,7 +171,8 @@ var mesh = []Object{
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
+	{t: Point, I: (0), pos: vector3.New(-400, 600, 0)},
+	{t: Directional, I: (0.8), dir: vector3.New(-1, 0, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
 	// {t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
@@ -152,7 +192,9 @@ func init() {
 func main() {
 
 	for i := range mesh {
+		// if p, ok := mesh[i].(Polygon); ok {
 		mesh[i].init()
+		// }
 	}
 	raytrace()
 
@@ -223,7 +265,7 @@ func main() {
 	s := time.Now()
 	// Render loop
 	for !window.ShouldClose() {
-		angle += 3
+		angle = 0
 		radAngle := angle / 180 * math.Pi
 		// angle2 := radAngle + math.Pi/2
 		lights[0].pos.X = 300 * math.Cos(radAngle)
@@ -294,9 +336,10 @@ func keyCB(w *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods 
 	}
 }
 
-const viewSpd = 20
+const viewSpd = 5
 
 func doKeyEffects() {
+	viewOMutex.Lock()
 	if keyMap[glfw.KeyW] {
 		viewO.Y += viewSpd
 	}
@@ -315,6 +358,7 @@ func doKeyEffects() {
 	if keyMap[glfw.KeyE] {
 		viewO.Z += viewSpd
 	}
+	viewOMutex.Unlock()
 }
 
 func loadTexture() (uint32, error) {
@@ -418,6 +462,7 @@ func raytrace() {
 }
 
 func processSection(x, y int) {
+	viewOMutex.RLock()
 	for dy := 0; dy < sectionH; dy++ {
 		for dx := 0; dx < sectionW; dx++ {
 			sx, sy := x*sectionW+dx, y*sectionH+dy
@@ -428,6 +473,7 @@ func processSection(x, y int) {
 	sectorMutex.Lock()
 	sectorsDone++
 	sectorMutex.Unlock()
+	viewOMutex.RUnlock()
 	// if sectorsDone >= 8 {
 	// 	// render()
 	// 	sectorMutex.Lock()
@@ -459,7 +505,7 @@ func oneRay(dir *vector3.Vector3, sx, sy int) {
 
 	firstHit := getClosestHit(hitRecord)
 
-	// fmt.Printf("%+v\n", firstHit)
+	// fmt.Printf("TT%+v\n", firstHit.tri)
 
 	// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 	// log.Println(angleIncidence)
@@ -485,51 +531,96 @@ func getHits(ray Ray, breakHit bool, maxT float64) []Hit {
 	// log.Printf("M %v", ray.dir.String())
 	var hitRecord []Hit
 
+out:
 	for _, tri := range mesh {
-		var t float64
-		var p *vector3.Vector3
 		if poly, ok := tri.(*Polygon); ok {
+			var t float64
+			var p *vector3.Vector3
 			if backface(ray, *poly) {
 				continue
 			}
 
-			t, p = intersect(*tri.(*Polygon), ray)
+			t, p = intersect(*poly, ray)
+
+			if t <= 0 {
+				continue
+			} else {
+				// log.Println("Marker")
+				cont := false
+				if _, ok := tri.(*Polygon); ok {
+					cont = inTri(*tri.(*Polygon), p)
+				}
+				if cont {
+					// c := int((t - 700) / 30 * 255)
+					// angleIncidence := Angle(p.Sub(viewO), tri.n)
+					// log.Println(angleIncidence)
+					// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
+					// setRes(sx, sy, c, c, c)
+
+					// log.Println("MARKER")
+
+					if breakHit {
+						if t < maxT && t > 0.0000001 {
+							hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+							break
+						}
+					} else {
+						if t > 0.000001 {
+							hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
+						}
+					}
+					// break
+					// setRes(sx, sy, 255, 255, 255)
+					// log.Println("GOOD")
+				}
+			}
+		} else if sph, ok := tri.(*Sphere); ok {
+			n, t1, t2 := intersectSph(*sph, ray)
+
+			// log.Println(n, t1, t2)
+
+			switch n {
+			case 0:
+				continue out
+			case 1:
+				// log.Println(n, t1, t2)
+				if breakHit {
+					if t1 < maxT && t1 > 0.0000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t1, p: ray.O.Add(ray.dir.MulScalar(t1))})
+						break out
+					}
+				} else {
+					if t1 > 0.000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t1, p: ray.O.Add(ray.dir.MulScalar(t1))})
+					}
+				}
+			case 2:
+				if breakHit {
+					if t1 < maxT && t1 > 0.0000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t1, p: ray.O.Add(ray.dir.MulScalar(t1))})
+						break out
+					}
+				} else {
+					if t1 > 0.000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t1, p: ray.O.Add(ray.dir.MulScalar(t1))})
+					}
+				}
+
+				if breakHit {
+					if t2 < maxT && t2 > 0.0000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t2, p: ray.O.Add(ray.dir.MulScalar(t2))})
+						break out
+					}
+				} else {
+					if t2 > 0.000001 {
+						hitRecord = append(hitRecord, Hit{tri: tri, t: t2, p: ray.O.Add(ray.dir.MulScalar(t2))})
+					}
+				}
+			}
 		}
 		// log.Printf("%+v\n", tri)
 		// log.Println(t)
 		// log.Println(p.String())
-		if t <= 0 {
-			continue
-		} else {
-			// log.Println("Marker")
-			cont := false
-			if _, ok := tri.(*Polygon); ok {
-				cont = inTri(*tri.(*Polygon), p)
-			}
-			if cont {
-				// c := int((t - 700) / 30 * 255)
-				// angleIncidence := Angle(p.Sub(viewO), tri.n)
-				// log.Println(angleIncidence)
-				// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-				// setRes(sx, sy, c, c, c)
-
-				// log.Println("MARKER")
-
-				if breakHit {
-					if t < maxT && t > 0.0000001 {
-						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
-						break
-					}
-				} else {
-					if t > 0.000001 {
-						hitRecord = append(hitRecord, Hit{tri: tri, t: t, p: p})
-					}
-				}
-				// break
-				// setRes(sx, sy, 255, 255, 255)
-				// log.Println("GOOD")
-			}
-		}
 	}
 
 	return hitRecord
@@ -553,6 +644,26 @@ func intersect(t Polygon, r Ray) (float64, *vector3.Vector3) {
 	}
 
 	return -1, &vector3.Vector3{}
+}
+
+// @ returns (number of intersections, t1, t2)
+func intersectSph(s Sphere, r Ray) (int, float64, float64) {
+	// A - C
+	AC := r.O.Sub(s.c)
+	a := r.dir.Dot(r.dir)
+	b := 2 * AC.Dot(r.dir)
+	c := AC.Dot(AC) - s.r*s.r
+
+	discriminant := b*b - 4*a*c
+	if discriminant < 0 {
+		return 0, -1, -1
+	} else if discriminant == 0 {
+		return 1, -b / (2 * a), 0
+	} else {
+		return 2, (-b + math.Sqrt(discriminant)) / (2 * a), (-b - math.Sqrt(discriminant)) / (2 * a)
+	}
+
+	// return 0, -1, -1
 }
 
 const epsilon = 0.001
@@ -598,7 +709,7 @@ func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 
 				dot := tri.normal(P).Dot(pl)
 
 				if dot > 0 {
-					shadowResult := checkShadow(P, pl, maxT)
+					shadowResult := checkShadow(P.Add(tri.normal(P).MulScalar(0.00001)), pl, maxT)
 					// shadowResult := false
 					// if shadowResult {
 					// 	log.Println("shadow detected")
@@ -632,7 +743,7 @@ func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 
 				rayReflection := reflect(pl, tri.normal(P))
 				dotted := rayView.Dot(rayReflection)
 				if dotted > 0 {
-					if !checkShadow(P, pl, maxT) {
+					if !checkShadow(P.Add(tri.normal(P).MulScalar(0.00001)), pl, maxT) {
 						cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
 
 						sum += l.I * math.Pow(cosAlpha, tri.p().specExp)
