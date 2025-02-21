@@ -139,6 +139,7 @@ type Light struct {
 	pos *vector3.Vector3
 	t   LightType
 	dir *vector3.Vector3
+	col *vector3.Vector3
 }
 
 func (t *Polygon) init() {
@@ -176,7 +177,7 @@ var mesh = []Object{
 	&Sphere{
 		c:              vector3.New(-150, 750, 0),
 		r:              200,
-		col:            vector3.New(255, 0, 0),
+		col:            vector3.New(255, 255, 0),
 		shiny:          false,
 		specExp:        50,
 		reflect:        false,
@@ -188,7 +189,7 @@ var mesh = []Object{
 		col:            vector3.New(0, 255, 0),
 		shiny:          true,
 		specExp:        50,
-		reflect:        false,
+		reflect:        true,
 		reflectiveness: (0.5),
 	},
 	// {
@@ -206,12 +207,12 @@ var mesh = []Object{
 
 var lights = []Light{
 	// {t: Ambient, I: (0.1)},
-	{t: Point, I: (0), pos: vector3.New(-400, 600, 0)},
-	{t: Directional, I: (0.8), dir: vector3.New(-1, 0, 0)},
+	// {t: Point, I: (0.8), pos: vector3.New(-400, 600, 0)},
+	{t: Directional, I: (0.8), dir: vector3.New(-1, 0, 0), col: vector3.New(255, 0, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-400, 600, 0)},
 	// {t: Point, I: (0.4), pos: vector3.New(-250, 700, -210)},
 	// {t: Point, I: (0.4), pos: vector3.New(250, 700, -210)},
-	{t: Ambient, I: (0.2)},
+	{t: Ambient, I: (0.2), col: vector3.New(255, 255, 255)},
 
 	// {t: Point, I: (0.8), pos: vector3.New(400, 400, 0)},,
 }
@@ -309,6 +310,8 @@ func main() {
 		// lights[0].pos.X = 300 * math.Cos(radAngle)
 		// lights[0].pos.Y = 700 + 300*math.Sin(radAngle)
 		// lights[0].pos.Z = -210
+
+		// lights[0].pos = viewO
 
 		// lights[1].pos.X = 300 * math.Cos(angle2)
 		// lights[1].pos.Y = 700 + 300*math.Sin(angle2)
@@ -414,14 +417,14 @@ func doKeyEffects() {
 		pitch += rotSpd
 		makeRotationMatrix()
 	}
-	if keyMap[glfw.KeyO] {
-		roll += rotSpd
-		makeRotationMatrix()
-	}
-	if keyMap[glfw.KeyU] {
-		roll -= rotSpd
-		makeRotationMatrix()
-	}
+	// if keyMap[glfw.KeyO] {
+	// 	roll += rotSpd
+	// 	makeRotationMatrix()
+	// }
+	// if keyMap[glfw.KeyU] {
+	// 	roll -= rotSpd
+	// 	makeRotationMatrix()
+	// }
 	viewOMutex.Unlock()
 }
 
@@ -577,14 +580,15 @@ func oneRay(dir *vector3.Vector3, sx, sy int) {
 	// angleIncidence := Angle(firstHit.p.Sub(viewO), firstHit.tri.n)
 	// log.Println(angleIncidence)
 	// c := int(math.Max(0, angleIncidence-2.1) / (math.Pi - 2.1) * 255)
-	i := getIntensity(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO)
-	var col *vector3.Vector3
-	if firstHit.tri.p().col != nil {
-		col = firstHit.tri.p().col
-	} else {
-		col = vector3.New(100, 100, 100)
-	}
-	col = col.MulScalar(i)
+	col := getColor(firstHit.tri, ray.dir.MulScalar(firstHit.t), viewO).MulScalar(255)
+	// log.Println(col.String())
+	// var col *vector3.Vector3
+	// if firstHit.tri.p().col != nil {
+	// 	col = firstHit.tri.p().col
+	// } else {
+	// 	col = vector3.New(100, 100, 100)
+	// }
+	// col = col.MulScalar(i)
 	// var r *vector3.Vector3
 	if firstHit.tri.p().reflect {
 		r := getReflection(firstHit.tri, ray.dir.MulScalar(firstHit.t), firstHit.p, maxReflectRecursion)
@@ -753,14 +757,37 @@ func Angle(a, b *vector3.Vector3) float64 {
 	return math.Acos((a.Dot(b)) / (a.Magnitude() * b.Magnitude()))
 }
 
-func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 {
-	sum := float64(0)
+func mulCol(c1, c2 *vector3.Vector3) *vector3.Vector3 {
+	res := vector3.New(c1.X/255*c2.X/255, c1.Y/255*c2.Y/255, c1.Z/255*c2.Z/255)
+	res = clampCol(res)
+
+	return res
+}
+
+func addCol(c1, c2 *vector3.Vector3) *vector3.Vector3 {
+	res := c1.Add(c2)
+	res = clampCol(res)
+
+	return res
+}
+
+func clampCol(c *vector3.Vector3) *vector3.Vector3 {
+	res := vector3.New(0, 0, 0)
+	res.X = math.Min(255, math.Max(0, c.X))
+	res.Y = math.Min(255, math.Max(0, c.Y))
+	res.Z = math.Min(255, math.Max(0, c.Z))
+
+	return res
+}
+
+func getColor(tri Object, ray *vector3.Vector3, O *vector3.Vector3) *vector3.Vector3 {
+	sum := vector3.New(0, 0, 0)
 
 	P := ray.Add(O)
 	if !tri.p().shiny {
 		for _, l := range lights {
 			if l.t == Ambient {
-				sum += l.I
+				sum = addCol(sum, mulCol(tri.p().col, l.col.MulScalar(l.I)))
 			} else {
 				var pl *vector3.Vector3
 				var maxT float64
@@ -782,7 +809,8 @@ func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 
 					// 	log.Println("shadow detected")
 					// }
 					if !shadowResult {
-						sum += l.I * dot / pl.Magnitude()
+						i := l.I * dot / pl.Magnitude()
+						sum = addCol(sum, mulCol(tri.p().col, l.col.MulScalar(i)))
 					}
 				}
 			}
@@ -793,7 +821,7 @@ func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 
 
 		for _, l := range lights {
 			if l.t == Ambient {
-				sum += l.I
+				sum = addCol(sum, mulCol(tri.p().col, l.col.MulScalar(l.I)))
 			} else {
 				var pl *vector3.Vector3
 				var maxT float64
@@ -813,7 +841,9 @@ func getIntensity(tri Object, ray *vector3.Vector3, O *vector3.Vector3) float64 
 					if !checkShadow(P.Add(tri.normal(P).MulScalar(0.00001)), pl, maxT) {
 						cosAlpha := dotted / (rayView.Magnitude() * rayReflection.Magnitude())
 
-						sum += l.I * math.Pow(cosAlpha, tri.p().specExp)
+						i := l.I * math.Pow(cosAlpha, tri.p().specExp)
+
+						sum = addCol(sum, mulCol(tri.p().col, l.col.MulScalar(i)))
 					}
 				}
 			}
@@ -866,15 +896,15 @@ func getReflection(tri Object, ray *vector3.Vector3, O *vector3.Vector3, layer i
 
 	firstHit := getClosestHit(hits)
 
-	i := getIntensity(firstHit.tri, rayReflection.MulScalar(firstHit.t), O)
+	col := getColor(firstHit.tri, rayReflection.MulScalar(firstHit.t), O).MulScalar(255)
 
-	var col *vector3.Vector3
-	if firstHit.tri.p().col != nil {
-		col = firstHit.tri.p().col
-	} else {
-		col = vector3.New(100, 100, 100)
-	}
-	col = col.MulScalar(i)
+	// var col *vector3.Vector3
+	// if firstHit.tri.p().col != nil {
+	// 	col = firstHit.tri.p().col
+	// } else {
+	// 	col = vector3.New(100, 100, 100)
+	// }
+	// col = col.MulScalar(i)
 
 	if firstHit.tri.p().reflect && layer > 0 {
 		r := getReflection(firstHit.tri, rayReflection.MulScalar(firstHit.t), firstHit.p, layer-1)
